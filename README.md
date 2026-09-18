@@ -10,7 +10,7 @@ This is a personal pre-joining project. It is not a Kingdee production system.
 
 Stage 0 — engineering baseline.
 
-- Done: `GET /health`
+- Done: `GET /health`, `POST /ask` (mock JSON only)
 - Not built: model call, retrieval, real tools, Docker
 
 ## What you need
@@ -56,6 +56,16 @@ Expected:
     {"status":"ok","service":"process-agent"}
 
 API docs: http://127.0.0.1:8000/docs
+
+### Step 5 — mock POST /ask (no model)
+
+In a second PowerShell window:
+
+    Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body '{"question":"How many annual leave days?","lang":"en"}'
+
+Expected fields: `answer`, `source`, `error`. The answer is a fixed mock string.
+
+Missing `question` should return HTTP 422. The server window should log a line that contains `POST /ask time=`.
 
 ## Run (macOS / Linux)
 
