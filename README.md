@@ -8,10 +8,10 @@ This is a personal pre-joining project. It is not a Kingdee production system.
 
 ## Current stage
 
-Stage 0 — engineering baseline (closing this stage).
+Stage 1 — call a model from a script. `/ask` is still mock.
 
-- Done: `GET /health`, `POST /ask` (mock JSON only), fake tools in `tools.py`, pytest for those tools
-- Not built: model call, retrieval, wiring tools into `/ask`, Docker
+- Done: Stage 0 service, fake tools, tests, `call_model.py` (env-configured, OpenAI-compatible HTTP)
+- Not built: wiring the model into `POST /ask`, retrieval, Docker
 
 ## Layout
 
@@ -21,6 +21,8 @@ Stage 0 — engineering baseline (closing this stage).
     pytest.ini
     main.py          # FastAPI: /health and mock POST /ask
     tools.py         # fake get_leave_balance / get_bill_status
+    call_model.py    # one-shot model call; not used by /ask yet
+    .env.example     # env names only; copy to .env locally, never commit .env
     tests/
         test_tools.py
 
@@ -101,11 +103,23 @@ Windows example after a fresh clone:
 
 Then open http://127.0.0.1:8000/health
 
-## Configuration
+## Call a model (Stage 1)
 
-Stage 0 does not use a model API key.
+`POST /ask` does not use the model yet. Use the standalone script.
 
-Do not commit `.env` or secrets.
+Set three environment variables. Any OpenAI-compatible provider works
+(DeepSeek, Moonshot, OpenAI, a local gateway, etc.).
+
+PowerShell (this window only):
+
+    $env:MODEL_BASE_URL="https://api.example.com/v1"
+    $env:MODEL_NAME="your-model-name"
+    $env:MODEL_API_KEY="your-key"
+    python call_model.py
+
+Expected: one short sentence printed from the model. The script must not print the key.
+
+Do not commit `.env` or secrets. `.env.example` is safe to commit.
 
 ## License
 
