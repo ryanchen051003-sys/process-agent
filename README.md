@@ -8,10 +8,10 @@ This is a personal pre-joining project. It is not a Kingdee production system.
 
 ## Current stage
 
-Stage 1 — call a model from a script. `/ask` is still mock.
+Stage 1 — `POST /ask` calls the model. No retrieval yet.
 
-- Done: Stage 0 service, fake tools, tests, `call_model.py` (env-configured, OpenAI-compatible HTTP)
-- Not built: wiring the model into `POST /ask`, retrieval, Docker
+- Done: Stage 0 service, fake tools, tests, `call_model.py`, `/ask` uses env-configured model
+- Not built: retrieval, wiring `tools.py` into `/ask`, Docker
 
 ## Layout
 
@@ -19,7 +19,7 @@ Stage 1 — call a model from a script. `/ask` is still mock.
     README.md
     requirements.txt
     pytest.ini
-    main.py          # FastAPI: /health and mock POST /ask
+    main.py          # FastAPI: /health and POST /ask (model)
     tools.py         # fake get_leave_balance / get_bill_status
     call_model.py    # one-shot model call; not used by /ask yet
     .env.example     # env names only; copy to .env locally, never commit .env
@@ -46,7 +46,15 @@ Skip the first line if `.venv` already exists.
 
     pip install -r requirements.txt
 
-### Step 3 — start the service
+### Step 3 — set model env vars, then start the service
+
+PowerShell (this window only; do not commit the key):
+
+    $env:MODEL_BASE_URL="https://api.deepseek.com"
+    $env:MODEL_NAME="deepseek-flash"
+    $env:MODEL_API_KEY="your-key"
+
+Then:
 
     uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
@@ -70,11 +78,13 @@ Expected:
 
 API docs: http://127.0.0.1:8000/docs
 
-### Step 5 — mock POST /ask (no model)
+### Step 5 — POST /ask (model)
 
-    Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body '{"question":"How many annual leave days?","lang":"en"}'
+    Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body '{"question":"How many annual leave days in a typical policy?","lang":"en"}'
 
-Expected fields: `answer`, `source`, `error`. The answer is a fixed mock string.
+Expected: `answer` is model text (not the old mock sentence), `source` starts with `model:`, `error` is empty.
+
+If the model is down or the key is wrong: HTTP 200 with an `error` string, server process still running.
 
 Missing `question` should return HTTP 422.
 
