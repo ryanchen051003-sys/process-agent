@@ -4,10 +4,10 @@ import logging
 import os
 
 import httpx
-
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 from fastapi import FastAPI
 from pydantic import BaseModel
+
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +49,49 @@ def _load_prompt(lang: str, question: str) -> str | None:
     return template.replace("{question}", question)
 
 
+def _one_model_call(
+    url: str,
+    headers: dict,
+    payload: dict,
+    attempt: int,
+) -> tuple[str | None, str | None]:
+    """Return (text, error). text set means success."""
+    logger.info("model call attempt %s", attempt)
+    try:
+        response = httpx.post(url, headers=headers, json=payload, timeout=20.0)
+    except httpx.TimeoutException:
+        logger.warning("model call attempt %s failed: timeout after 20s", attempt)
+        return None, "model timeout after 20s"
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "model call attempt %s failed: network error %s",
+            attempt,
+            exc.__class__.__name__,
+        )
+        return None, "model network error"
+
+    if response.status_code >= 400:
+        logger.warning(
+            "model call attempt %s failed: HTTP %s",
+            attempt,
+            response.status_code,
+        )
+        return None, f"model HTTP {response.status_code}"
+
+    try:
+        text = response.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError):
+        logger.warning("model call attempt %s failed: unexpected response shape", attempt)
+        return None, "model returned an unexpected response"
+
+    if not text or not str(text).strip():
+        logger.warning("model call attempt %s failed: empty content", attempt)
+        return None, "model returned an empty answer"
+
+    logger.info("model call attempt %s succeeded", attempt)
+    return str(text).strip(), None
+
+
 def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
     """Return (answer, source, error). Never raises to the caller."""
     base_url = os.environ.get("MODEL_BASE_URL", "").strip().rstrip("/")
@@ -65,12 +108,7 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
     url = f"{base_url}/chat/completions"
     payload = {
         "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": content,
-            }
-        ],
+        "messages": [{"role": "user", "content": content}],
         "temperature": 0,
     }
     headers = {
@@ -78,30 +116,16 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
         "Content-Type": "application/json",
     }
 
-    try:
-        response = httpx.post(url, headers=headers, json=payload, timeout=20.0)
-    except httpx.TimeoutException:
-        logger.warning("model call failed: timeout after 20s")
-        return "", "", "model timeout after 20s"
-    except httpx.HTTPError as exc:
-        logger.warning("model call failed: network error %s", exc.__class__.__name__)
-        return "", "", "model network error"
+    last_error = "model call failed"
+    for attempt in (1, 2):
+        text, error = _one_model_call(url, headers, payload, attempt)
+        if error is None and text is not None:
+            return text, f"model:{model}", None
+        last_error = error or last_error
+        if attempt == 1:
+            logger.info("retrying model call once")
 
-    if response.status_code >= 400:
-        logger.warning("model call failed: HTTP %s", response.status_code)
-        return "", "", f"model HTTP {response.status_code}"
-
-    try:
-        text = response.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError, ValueError):
-        logger.warning("model call failed: unexpected response shape")
-        return "", "", "model returned an unexpected response"
-
-    if not text or not str(text).strip():
-        logger.warning("model call failed: empty content")
-        return "", "", "model returned an empty answer"
-
-    return str(text).strip(), f"model:{model}", None
+    return "", "", last_error
 
 
 @app.post("/ask", response_model=AskResponse)

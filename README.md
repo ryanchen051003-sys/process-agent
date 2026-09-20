@@ -8,9 +8,9 @@ This is a personal pre-joining project. It is not a Kingdee production system.
 
 ## Current stage
 
-Stage 1 — `POST /ask` calls the model. No retrieval yet.
+Stage 1 closing — `/ask` calls the model, retries once on failure.
 
-- Done: Stage 0 service, fake tools, tests, `call_model.py`, `/ask` uses env-configured model
+- Done: Stage 0 service, fake tools, tests, env-configured model, prompt files, one retry
 - Not built: retrieval, wiring `tools.py` into `/ask`, Docker
 
 ## Layout
@@ -21,8 +21,11 @@ Stage 1 — `POST /ask` calls the model. No retrieval yet.
     pytest.ini
     main.py          # FastAPI: /health and POST /ask (model)
     tools.py         # fake get_leave_balance / get_bill_status
-    call_model.py    # one-shot model call; not used by /ask yet
-    .env.example     # env names only; copy to .env locally, never commit .env
+    call_model.py    # one-shot model call
+    .env.example
+    prompts/
+        zh.txt       # Chinese system+user template, placeholder {question}
+        en.txt
     tests/
         test_tools.py
 
@@ -113,23 +116,29 @@ Windows example after a fresh clone:
 
 Then open http://127.0.0.1:8000/health
 
-## Call a model (Stage 1)
+## Configuration
 
-`POST /ask` does not use the model yet. Use the standalone script.
+`POST /ask` and `call_model.py` read three environment variables. They are
+not stored in the repository. Do not commit `.env` or paste a real key into
+README. `.env.example` lists the names only.
 
-Set three environment variables. Any OpenAI-compatible provider works
-(DeepSeek, Moonshot, OpenAI, a local gateway, etc.).
+| Name | Meaning | Example (fake) |
+|---|---|---|
+| `MODEL_BASE_URL` | Vendor HTTP root (script appends `/chat/completions`) | `https://api.deepseek.com` |
+| `MODEL_NAME` | Model id | `deepseek-chat` |
+| `MODEL_API_KEY` | Secret from the vendor console | set locally, never commit |
 
-PowerShell (this window only):
+PowerShell, same window as `uvicorn`, before starting the server:
 
-    $env:MODEL_BASE_URL="https://api.example.com/v1"
-    $env:MODEL_NAME="your-model-name"
+    $env:MODEL_BASE_URL="https://api.deepseek.com"
+    $env:MODEL_NAME="deepseek-chat"
     $env:MODEL_API_KEY="your-key"
-    python call_model.py
 
-Expected: one short sentence printed from the model. The script must not print the key.
+Changing these values requires stopping uvicorn with Ctrl+C and starting it again.
 
-Do not commit `.env` or secrets. `.env.example` is safe to commit.
+On failure the server retries the vendor call once. Logs contain
+`model call attempt 1` and `model call attempt 2`. The JSON shape stays
+`answer` / `source` / `error`. The process must not exit.
 
 ## License
 
