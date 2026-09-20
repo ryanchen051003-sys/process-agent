@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
+from pathlib import Path
 import logging
 import os
 
 import httpx
+
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 from fastapi import FastAPI
 from pydantic import BaseModel
 
@@ -31,6 +34,21 @@ def health():
     return {"status": "ok", "service": "process-agent"}
 
 
+def _prompt_path(lang: str) -> Path:
+    key = "zh" if lang.lower().startswith("zh") else "en"
+    return PROMPTS_DIR / f"{key}.txt"
+
+
+def _load_prompt(lang: str, question: str) -> str | None:
+    path = _prompt_path(lang)
+    try:
+        template = path.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("prompt file missing: %s", path.name)
+        return None
+    return template.replace("{question}", question)
+
+
 def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
     """Return (answer, source, error). Never raises to the caller."""
     base_url = os.environ.get("MODEL_BASE_URL", "").strip().rstrip("/")
@@ -40,14 +58,17 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
         logger.warning("model call failed: missing environment variable")
         return "", "", "missing MODEL_BASE_URL, MODEL_NAME, or MODEL_API_KEY"
 
-    language = "Chinese" if lang.lower().startswith("zh") else "English"
+    content = _load_prompt(lang, question)
+    if content is None:
+        return "", "", "prompt file missing"
+
     url = f"{base_url}/chat/completions"
     payload = {
         "model": model,
         "messages": [
             {
                 "role": "user",
-                "content": f"Answer in {language}. Question: {question}",
+                "content": content,
             }
         ],
         "temperature": 0,
