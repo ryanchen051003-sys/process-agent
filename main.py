@@ -7,6 +7,8 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from retrieve import search_docs
+
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 logging.basicConfig(
@@ -39,14 +41,14 @@ def _prompt_path(lang: str) -> Path:
     return PROMPTS_DIR / f"{key}.txt"
 
 
-def _load_prompt(lang: str, question: str) -> str | None:
+def _load_prompt(lang: str, question: str, docs: str) -> str | None:
     path = _prompt_path(lang)
     try:
         template = path.read_text(encoding="utf-8")
     except OSError:
         logger.warning("prompt file missing: %s", path.name)
         return None
-    return template.replace("{question}", question)
+    return template.replace("{docs}", docs).replace("{question}", question)
 
 
 def _one_model_call(
@@ -101,7 +103,18 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
         logger.warning("model call failed: missing environment variable")
         return "", "", "missing MODEL_BASE_URL, MODEL_NAME, or MODEL_API_KEY"
 
-    content = _load_prompt(lang, question)
+    hits = search_docs(question, lang)
+    if not hits:
+        logger.info("retrieve: no relevant chunk")
+        if lang.lower().startswith("zh"):
+            return "根据现有政策文档，无法确定。", "none", None
+        return "Not specified in the policy documents.", "none", None
+
+    docs_block = "\n\n".join(f"[{h['path']}]\n{h['text']}" for h in hits)
+    source = " | ".join(dict.fromkeys(h["path"] for h in hits))
+    logger.info("retrieve hits=%s", source)
+
+    content = _load_prompt(lang, question, docs_block)
     if content is None:
         return "", "", "prompt file missing"
 
@@ -120,7 +133,7 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
     for attempt in (1, 2):
         text, error = _one_model_call(url, headers, payload, attempt)
         if error is None and text is not None:
-            return text, f"model:{model}", None
+            return text, source, None
         last_error = error or last_error
         if attempt == 1:
             logger.info("retrying model call once")
