@@ -23,6 +23,7 @@ app = FastAPI(title="process-agent")
 class AskRequest(BaseModel):
     question: str
     lang: str
+    tenant: str
 
 
 class AskResponse(BaseModel):
@@ -94,7 +95,7 @@ def _one_model_call(
     return str(text).strip(), None
 
 
-def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
+def _chat(question: str, lang: str, tenant: str) -> tuple[str, str, str | None]:
     """Return (answer, source, error). Never raises to the caller."""
     base_url = os.environ.get("MODEL_BASE_URL", "").strip().rstrip("/")
     model = os.environ.get("MODEL_NAME", "").strip()
@@ -103,7 +104,7 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
         logger.warning("model call failed: missing environment variable")
         return "", "", "missing MODEL_BASE_URL, MODEL_NAME, or MODEL_API_KEY"
 
-    hits = search_docs(question, lang)
+    hits = search_docs(question, lang, tenant)
     if not hits:
         logger.info("retrieve: no relevant chunk")
         if lang.lower().startswith("zh"):
@@ -145,10 +146,11 @@ def _chat(question: str, lang: str) -> tuple[str, str, str | None]:
 def ask(body: AskRequest):
     now = datetime.now(timezone.utc).isoformat()
     logger.info(
-        "POST /ask time=%s question=%r lang=%r",
+        "POST /ask time=%s question=%r lang=%r tenant=%r",
         now,
         body.question,
         body.lang,
+        body.tenant,
     )
-    answer, source, error = _chat(body.question, body.lang)
+    answer, source, error = _chat(body.question, body.lang, body.tenant)
     return AskResponse(answer=answer, source=source, error=error)
