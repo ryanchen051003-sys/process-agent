@@ -1,6 +1,9 @@
 from pathlib import Path
+import logging
 
 import chromadb
+
+logger = logging.getLogger("process-agent")
 
 ROOT = Path(__file__).resolve().parent
 DOCS_DIR = ROOT / "docs"
@@ -71,12 +74,15 @@ def _topic_path(question: str, lang: str) -> str | None:
 
 def search_docs(question: str, lang: str, k: int = 3) -> list[dict]:
     topic = _topic_path(question, lang)
+    logger.info("retrieve question=%r topic=%r file=%s", question, topic, ROOT / (topic or ""))
     if not topic:
         return []
     path = ROOT / topic
     if not path.is_file():
+        logger.warning("retrieve file missing: %s", path)
         return []
     hits = []
     for chunk in _chunks_from_file(path):
         hits.append({"text": chunk, "path": topic, "distance": 0.0})
-    return hits
+    suffix = ".zh.md" if lang.lower().startswith("zh") else ".en.md"
+    return [h for h in hits if h.get("path", "").endswith(suffix)]
