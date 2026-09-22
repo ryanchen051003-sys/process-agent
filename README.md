@@ -8,10 +8,18 @@ This is a personal pre-joining project. It is not a Kingdee production system.
 
 ## Current stage
 
-Stage 1 closing — `/ask` calls the model, retries once on failure.
+Stage 2 closing — retrieve fake docs, then answer with a file `source`.
 
-- Done: Stage 0 service, fake tools, tests, env-configured model, prompt files, one retry
-- Not built: retrieval, wiring `tools.py` into `/ask`, Docker
+- Done: `docs/` fake policies; Chroma ingest; `/ask` finds a doc before the model; `lang` picks `.zh.md` / `.en.md`; `tenant=A|B` folders; unknown questions return `source=none`
+- TBD: wire `tools.py` into `/ask`; restore vector `query` as the primary lookup; Docker
+
+This is still a personal learning project. It is not a Kingdee production system.
+
+## Stage 2 pipeline and a failure we hit
+
+Ask `POST /ask` with `question`, `lang`, and `tenant`. The service maps the question to one markdown file under `docs/{tenant}/`, fills `{docs}` in the prompt, then calls the model. The JSON `source` is that file path. If no topic matches (for example a made-up benefit), it does not call the model and returns “not specified”, `source=none`.
+
+Retrieval failed twice on the way here. PowerShell often garbled Chinese, so `/docs` must be used for CJK questions. A pure Chroma `query` plus `where={"path": ...}` also came back empty on this machine even after ingest, so `/ask` now opens the matched markdown file directly. Chroma is still used for `python ingest_docs.py`. Swapping vendors or claiming this is live at Kingdee is out of scope.
 
 ## Layout
 
@@ -26,6 +34,10 @@ Stage 1 closing — `/ask` calls the model, retries once on failure.
     prompts/
         zh.txt       # Chinese system+user template, placeholder {question}
         en.txt
+    docs/            # fake leave and expense policies, zh/en pairs
+    retrieve.py      # chunk + Chroma search
+    ingest_docs.py   # load docs/ into data/chroma/
+    data/            # local Chroma files, gitignored
     tests/
         test_tools.py
 
@@ -81,11 +93,18 @@ Expected:
 
 API docs: http://127.0.0.1:8000/docs
 
-### Step 5 — POST /ask (model)
+### Step 5 — ingest documents (once, after clone or after editing docs/)
 
-    Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body '{"question":"How many annual leave days in a typical policy?","lang":"en"}'
+    pip install -r requirements.txt
+    python ingest_docs.py
 
-Expected: `answer` is model text (not the old mock sentence), `source` starts with `model:`, `error` is empty.
+Expected: a line like `ingested N chunks from docs/`. First run may download a small embedding model.
+
+### Step 6 — POST /ask (retrieve, then model)
+
+    Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/ask -ContentType "application/json" -Body '{"question":"How many annual leave days after one year?","lang":"en","tenant":"A"}'
+
+Expected: `answer` uses the tenant A document, `source` is a path such as `docs/A/leave-annual.en.md` or `docs/A/leave-annual.zh.md`, `error` is empty. Chinese questions are easier in http://127.0.0.1:8000/docs .
 
 If the model is down or the key is wrong: HTTP 200 with an `error` string, server process still running.
 
